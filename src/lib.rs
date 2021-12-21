@@ -37,6 +37,7 @@ use libc::{
 };
 use std::collections::VecDeque;
 use std::io::Result;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -968,5 +969,73 @@ impl Queue {
 impl Drop for Queue {
     fn drop(&mut self) {
         unsafe { close(self.fd) };
+    }
+}
+
+impl AsRawFd for Queue {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+#[cfg(feature = "async")]
+pub mod async_nfq {
+    use async_io::Async;
+
+    use super::{parse_msg, AsRawFd, Message, Queue, RawFd, Result};
+
+    /// Asynchronous variant of [`Queue`]
+    ///
+    /// Simple example using an asynchronous Queue.
+    /// ```no_run
+    /// #[async_std::main]
+    /// async fn main() -> Result<()> {
+    ///    let mut queue = Queue::open()?;
+    ///    queue.bind(0)?;
+    ///    let mut queue = AsyncQueue::new(queue)?;
+    ///    loop {
+    ///        let mut msg = queue.recv().await?;
+    ///        msg.set_verdict(Verdict::Accept);
+    ///        println!("{:#?}", msg);
+    ///        queue.verdict(msg).await?;    
+    ///    }
+    /// }
+    /// ```
+    pub struct AsyncQueue {
+        watcher: Async<RawFd>,
+        queue: Queue,
+    }
+
+    impl AsyncQueue {
+        /// converts a [`Queue`] into its asynchronous variant (Queue is consumed,
+        /// so configuration must be complete before making the conversion).
+        pub fn new(mut queue: Queue) -> Result<AsyncQueue> {
+            queue.set_nonblocking(true);
+            Ok(AsyncQueue {
+                watcher: Async::new(queue.as_raw_fd())?,
+                queue,
+            })
+        }
+
+        /// Asynchronous receive for a packet on the queue.
+        pub async fn recv(&mut self) -> Result<Message> {
+            while self.queue.queue.is_empty() {
+                // We just await before calling `recv` on the wrapped Queue
+                self.watcher.readable().await?;
+
+                self.queue.recv_nlmsg(|this, nlh| {
+                    unsafe { parse_msg(nlh, this) };
+                })?;
+            }
+
+            let msg = self.queue.queue.pop_front().unwrap();
+            Ok(msg)
+        }
+
+        /// Set the final verdict for a given message.
+        pub async fn verdict(&mut self, msg: Message) -> Result<()> {
+            self.watcher.writable().await?;
+            self.queue.verdict(msg)
+        }
     }
 }

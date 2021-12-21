@@ -11,6 +11,8 @@ repository = "https://github.com/nbdd0121/nfq-rs.git"
 
 [dependencies]
 libc = "0.2"
+async-io = "1.6"
 
 [features]
 ct = []
+async = []
