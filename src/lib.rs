@@ -234,6 +234,8 @@ pub struct Message {
 
 unsafe impl Send for Message {}
 
+unsafe impl Sync for Message {}
+
 impl Message {
     /// Get the queue number.
     #[inline]
@@ -1008,7 +1010,6 @@ pub mod async_nfq {
     /// ```
     pub struct AsyncQueue {
         watcher: Async<Queue>,
-        // queue: Queue,
     }
 
     impl AsyncQueue {
@@ -1018,7 +1019,6 @@ pub mod async_nfq {
             queue.set_nonblocking(true);
             Ok(AsyncQueue {
                 watcher: Async::new(queue)?,
-                // queue,
             })
         }
 
