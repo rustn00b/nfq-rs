@@ -233,6 +233,7 @@ pub struct Message {
 }
 
 unsafe impl Send for Message {}
+unsafe impl Sync for Message {}
 
 impl Message {
     /// Get the queue number.
@@ -351,6 +352,12 @@ impl Message {
             let len = be16_to_cpu((*self.hwaddr).hw_addrlen) as usize;
             Some(&(*self.hwaddr).hw_addr[..len])
         }
+    }
+
+    /// Get the packet ID that netfilter uses to track the packet.
+    #[inline]
+    pub fn get_packet_id(&self) -> u32 {
+        unsafe { be32_to_cpu((*self.hdr).packet_id) }
     }
 
     /// Get the link layer protocol number, e.g. the EtherType field on Ethernet links.
@@ -594,8 +601,6 @@ pub struct Queue {
     /// Message buffer reused across verdict calls
     verdict_buffer: Option<Box<[u32; (8192 + 0x10000) / 4]>>,
 }
-
-unsafe impl Send for Queue {}
 
 impl Queue {
     /// Open a NetFilter socket and queue connection.
@@ -970,6 +975,13 @@ impl Drop for Queue {
     fn drop(&mut self) {
         unsafe { close(self.fd) };
     }
+}
+
+fn _assert_send_and_sync() {
+    fn check<T: Send + Sync>() {}
+
+    check::<Message>();
+    check::<Queue>();
 }
 
 impl AsRawFd for Queue {
