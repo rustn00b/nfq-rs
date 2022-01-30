@@ -939,6 +939,11 @@ impl Queue {
 
     /// Verdict a message.
     pub fn verdict(&mut self, msg: Message) -> Result<()> {
+        self.try_verdict(&msg)
+    }
+
+    /// Verdict a message (without consuming it).
+    pub fn try_verdict(&mut self, msg: &Message) -> Result<()> {
         unsafe {
             let mut buffer = self.verdict_buffer.take().unwrap();
             let mut nlmsg = Nlmsg::new(&mut buffer[..]);
@@ -994,7 +999,7 @@ impl AsRawFd for Queue {
 pub mod async_nfq {
     use async_io::Async;
 
-    use super::{parse_msg, AsRawFd, Message, Queue, RawFd, Result};
+    use super::{Message, Queue, Result};
 
     /// Asynchronous variant of [`Queue`]
     ///
@@ -1014,8 +1019,7 @@ pub mod async_nfq {
     /// }
     /// ```
     pub struct AsyncQueue {
-        watcher: Async<RawFd>,
-        queue: Queue,
+        watcher: Async<Queue>,
     }
 
     impl AsyncQueue {
@@ -1024,30 +1028,18 @@ pub mod async_nfq {
         pub fn new(mut queue: Queue) -> Result<AsyncQueue> {
             queue.set_nonblocking(true);
             Ok(AsyncQueue {
-                watcher: Async::new(queue.as_raw_fd())?,
-                queue,
+                watcher: Async::new(queue)?,
             })
         }
 
         /// Asynchronous receive for a packet on the queue.
         pub async fn recv(&mut self) -> Result<Message> {
-            while self.queue.queue.is_empty() {
-                // We just await before calling `recv` on the wrapped Queue
-                self.watcher.readable().await?;
-
-                self.queue.recv_nlmsg(|this, nlh| {
-                    unsafe { parse_msg(nlh, this) };
-                })?;
-            }
-
-            let msg = self.queue.queue.pop_front().unwrap();
-            Ok(msg)
+            self.watcher.read_with_mut(|io| { io.recv() }).await
         }
 
         /// Set the final verdict for a given message.
         pub async fn verdict(&mut self, msg: Message) -> Result<()> {
-            self.watcher.writable().await?;
-            self.queue.verdict(msg)
+            self.watcher.write_with_mut(|io| io.try_verdict(&msg)).await
         }
     }
 }
