@@ -1041,5 +1041,13 @@ pub mod async_nfq {
         pub async fn verdict(&mut self, msg: Message) -> Result<()> {
             self.watcher.write_with_mut(|io| io.try_verdict(&msg)).await
         }
+
+        pub async fn unbind(&mut self, port: u16) -> Result<()> {
+            match self.watcher.into_inner() {
+                Ok(queue) => queue.unbind(port),
+                Err(_) => Err(())
+            }
+        }
+        
     }
 }
